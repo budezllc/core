@@ -446,8 +446,6 @@ class ConnectionPool extends Observable {
 
         // Create peer channel.
         const channel = new PeerChannel(conn);
-        channel.on('signal', msg => this._signalProcessor.onSignal(channel, msg));
- 
         peerConnection.peerChannel = channel;
 
         // Create network agent.
@@ -509,6 +507,30 @@ class ConnectionPool extends Observable {
                 peerConnection.peerChannel.close(CloseType.MAX_PEER_COUNT_REACHED,
                     `max peer count reached (${Network.PEER_COUNT_MAX})`);
                 return;
+            }
+
+            // Enforce maximum peer count per protocol.
+            switch (peer.peerAddress.protocol) {
+                case Protocol.WS:
+                    if (this.peerCountWs >= Network.PEER_COUNT_WS_MAX && !this._allowInboundExchange) {
+                        peerConnection.peerChannel.close(CloseType.MAX_PEER_COUNT_REACHED,
+                            `max ws peer count reached (${Network.PEER_COUNT_WS_MAX})`);
+                        return;
+                    }
+                    break;
+                case Protocol.RTC:
+                    if (this.peerCountRtc >= Network.PEER_COUNT_RTC_MAX && !this._allowInboundExchange) {
+                        peerConnection.peerChannel.close(CloseType.MAX_PEER_COUNT_REACHED,
+                            `max rtc peer count reached (${Network.PEER_COUNT_RTC_MAX})`);
+                        return;
+                    }
+                    break;
+                case Protocol.DUMB:
+                    if (this.peerCountDumb >= Network.PEER_COUNT_DUMB_MAX && !this._allowInboundExchange) {
+                        peerConnection.peerChannel.close(CloseType.MAX_PEER_COUNT_REACHED,
+                            `max dumb peer count reached (${Network.PEER_COUNT_DUMB_MAX})`);
+                        return;
+                    }
             }
 
             // Duplicate/simultaneous connection check (post handshake):
@@ -576,6 +598,12 @@ class ConnectionPool extends Observable {
  
         this._updateConnectedPeerCount(peerConnection, 1);
 
+        // Setup signal forwarding.
+        if (Network.SIGNALING_ENABLED) {
+            peerConnection.peerChannel.on('signal', msg => this._signalProcessor.onSignal(peerConnection.peerChannel, msg));
+        }
+
+        // Mark address as established.
         this._addresses.established(peer.channel, peer.peerAddress);
 
         // Let listeners know about this peer.
